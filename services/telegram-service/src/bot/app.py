@@ -5279,11 +5279,32 @@ async def handle_keyboard_message(update: Update, context: ContextTypes.DEFAULT_
                     await update.message.reply_text(f"❌ AI 分析失败: {e}")
                     return
 
+        # -------- 单币双感叹号触发完整TXT：如 "btc!!" 或 "BTC！！" --------
+        if "!!" in norm_text or "！！" in norm_text:
+            m = re.search(r"([A-Za-z0-9]{2,15})\s*[!！]{2}", norm_text, re.IGNORECASE)
+            if m:
+                sym = m.group(1).upper()
+                try:
+                    from bot.single_token_txt import export_single_token_txt
+                    txt_content = export_single_token_txt(sym)
+                    # 发送为文本（如果太长会自动分段）
+                    if len(txt_content) > 4000:
+                        # 分段发送
+                        parts = [txt_content[i:i+4000] for i in range(0, len(txt_content), 4000)]
+                        for i, part in enumerate(parts):
+                            await update.message.reply_text(f"```\n{part}\n```", parse_mode='Markdown')
+                    else:
+                        await update.message.reply_text(f"```\n{txt_content}\n```", parse_mode='Markdown')
+                except Exception as e:
+                    logger.error(f"完整TXT导出失败: {e}")
+                    await update.message.reply_text(f"❌ 导出失败: {e}")
+                return
+
         # -------- 单币感叹号触发：如 "btc!" 或 "BTC！" --------
         sym = None
         if "!" in norm_text or "！" in norm_text:
             # 优先按符号前的 token 抓取
-            m = re.search(r"([A-Za-z0-9]{2,15})\\s*[!！]", norm_text, re.IGNORECASE)
+            m = re.search(r"([A-Za-z0-9]{2,15})\s*[!！](?![!！])", norm_text, re.IGNORECASE)
             if m:
                 sym = m.group(1)
             else:
