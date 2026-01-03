@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-数据获取器
-- 从 TimescaleDB 获取 K线数据
-- 从 SQLite 获取指标数据
+数据获取器 - 全量版
+- 从 TimescaleDB 获取 K线数据（50条）
+- 从 SQLite 获取全部指标数据
+- 复用 telegram-service 的 data_provider
 """
 from __future__ import annotations
 
 import os
+import sys
 import sqlite3
 from datetime import datetime, timezone
 from typing import Dict, List, Any
 
 from src.config import INDICATOR_DB, PROJECT_ROOT
 
-# 数据字段说明
-try:
-    from src.utils.data_docs import DATA_DOCS
-except ImportError:
-    DATA_DOCS = {}
+# 添加 telegram-service 路径，复用 data_provider
+TELEGRAM_SRC = PROJECT_ROOT / "services" / "telegram-service" / "src"
+if str(TELEGRAM_SRC) not in sys.path:
+    sys.path.insert(0, str(TELEGRAM_SRC))
 
 # TimescaleDB 连接配置
 DB_HOST = os.getenv("TIMESCALE_HOST", "localhost")
@@ -26,7 +27,7 @@ DB_USER = os.getenv("TIMESCALE_USER", "postgres")
 DB_PASS = os.getenv("TIMESCALE_PASSWORD", "postgres")
 DB_NAME = os.getenv("TIMESCALE_DB", "market_data")
 
-DEFAULT_INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+ALL_INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
 
 
 def _get_pg_conn():
@@ -36,9 +37,9 @@ def _get_pg_conn():
     return psycopg.connect(conninfo)
 
 
-def fetch_candles(symbol: str, intervals: List[str] = None) -> Dict[str, List[Dict[str, Any]]]:
-    """获取多周期 K线数据"""
-    intervals = intervals or DEFAULT_INTERVALS
+def fetch_candles(symbol: str, intervals: List[str] = None, limit: int = 50) -> Dict[str, List[Dict[str, Any]]]:
+    """获取多周期 K线数据（全量 50 条）"""
+    intervals = intervals or ALL_INTERVALS
     candles: Dict[str, List[Dict[str, Any]]] = {}
     
     try:
@@ -53,9 +54,9 @@ def fetch_candles(symbol: str, intervals: List[str] = None) -> Dict[str, List[Di
                 FROM {table} 
                 WHERE symbol = %s 
                 ORDER BY bucket_ts DESC 
-                LIMIT 50
+                LIMIT %s
             """
-            cur.execute(sql, (symbol,))
+            cur.execute(sql, (symbol, limit))
             rows = cur.fetchall()
             
             parsed = []
@@ -78,12 +79,12 @@ def fetch_candles(symbol: str, intervals: List[str] = None) -> Dict[str, List[Di
         conn.close()
     except Exception as e:
         # 回退到 psql CLI
-        candles = _fetch_candles_psql(symbol, intervals)
+        candles = _fetch_candles_psql(symbol, intervals, limit)
     
     return candles
 
 
-def _fetch_candles_psql(symbol: str, intervals: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+def _fetch_candles_psql(symbol: str, intervals: List[str], limit: int) -> Dict[str, List[Dict[str, Any]]]:
     """使用 psql CLI 获取 K线（回退方案）"""
     import subprocess
     
@@ -93,8 +94,8 @@ def _fetch_candles_psql(symbol: str, intervals: List[str]) -> Dict[str, List[Dic
         table = f"market_data.candles_{iv}"
         sql = (
             "SELECT bucket_ts,open,high,low,close,volume,quote_volume,trade_count,"
-            "taker_buy_volume,taker_buy_quote_volume "
-            f"FROM {table} WHERE symbol='{symbol}' ORDER BY bucket_ts DESC LIMIT 50"
+            f"taker_buy_volume,taker_buy_quote_volume FROM {table} "
+            f"WHERE symbol='{symbol}' ORDER BY bucket_ts DESC LIMIT {limit}"
         )
         cmd = [
             "psql", "-h", DB_HOST, "-p", DB_PORT, "-U", DB_USER, "-d", DB_NAME,
@@ -131,8 +132,8 @@ def _fetch_candles_psql(symbol: str, intervals: List[str]) -> Dict[str, List[Dic
     return candles
 
 
-def fetch_metrics(symbol: str) -> List[Dict[str, Any]]:
-    """获取期货指标数据"""
+def fetch_metrics(symbol: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """获取期货指标数据（全量 50 条）"""
     try:
         conn = _get_pg_conn()
         cur = conn.cursor()
@@ -143,9 +144,9 @@ def fetch_metrics(symbol: str) -> List[Dict[str, Any]]:
             FROM market_data.binance_futures_metrics_5m
             WHERE symbol = %s
             ORDER BY create_time DESC
-            LIMIT 50
+            LIMIT %s
         """
-        cur.execute(sql, (symbol,))
+        cur.execute(sql, (symbol, limit))
         rows = cur.fetchall()
         
         result = []
@@ -166,8 +167,8 @@ def fetch_metrics(symbol: str) -> List[Dict[str, Any]]:
         return []
 
 
-def fetch_indicators(symbol: str) -> Dict[str, Any]:
-    """从 SQLite 获取指标数据"""
+def fetch_indicators_full(symbol: str) -> Dict[str, Any]:
+    """从 SQLite 获取全部指标数据（全量）"""
     db_path = INDICATOR_DB
     indicators: Dict[str, Any] = {}
 
@@ -211,44 +212,116 @@ def fetch_indicators(symbol: str) -> Dict[str, Any]:
     return indicators
 
 
+def fetch_single_token_data(symbol: str) -> Dict[str, Any]:
+    """
+    获取单币种完整数据（复用 telegram-service 的 data_provider）
+    返回与单币查询相同的完整字段
+    """
+    try:
+        from cards.data_provider import get_ranking_provider, format_symbol
+        
+        provider = get_ranking_provider()
+        sym = format_symbol(symbol)
+        if not sym:
+            return {}
+        
+        sym_full = sym if sym.endswith("USDT") else sym + "USDT"
+        
+        # 获取所有面板数据
+        data = {
+            "basic": {},      # 基础面板
+            "futures": {},    # 合约面板
+            "advanced": {},   # 高级面板
+        }
+        
+        # 基础面板表
+        basic_tables = [
+            "布林带扫描器", "成交量比率扫描器", "全量支撑阻力扫描器",
+            "主动买卖比扫描器", "KDJ随机指标扫描器", "MACD柱状扫描器",
+            "OBV能量潮扫描器", "谐波信号扫描器"
+        ]
+        
+        # 合约面板表
+        futures_tables = ["期货情绪聚合表"]
+        
+        # 高级面板表
+        advanced_tables = [
+            "ATR波幅扫描器", "CVD信号排行榜", "G，C点扫描器",
+            "K线形态扫描器", "MFI资金流量扫描器", "VPVR排行生成器",
+            "VWAP离线信号扫描", "流动性扫描器", "超级精准趋势扫描器", "趋势线榜单"
+        ]
+        
+        periods = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
+        
+        # 获取基础面板数据
+        for tbl in basic_tables:
+            data["basic"][tbl] = {}
+            for p in periods:
+                try:
+                    row = provider._fetch_single_row(tbl, p, sym_full)
+                    if row:
+                        data["basic"][tbl][p] = row
+                except Exception:
+                    pass
+        
+        # 获取合约面板数据
+        for tbl in futures_tables:
+            data["futures"][tbl] = {}
+            for p in periods[1:]:  # 合约不含 1m
+                try:
+                    row = provider._fetch_single_row(tbl, p, sym_full)
+                    if row:
+                        data["futures"][tbl][p] = row
+                except Exception:
+                    pass
+        
+        # 获取高级面板数据
+        for tbl in advanced_tables:
+            data["advanced"][tbl] = {}
+            for p in periods:
+                try:
+                    row = provider._fetch_single_row(tbl, p, sym_full)
+                    if row:
+                        data["advanced"][tbl][p] = row
+                except Exception:
+                    pass
+        
+        return data
+    except ImportError:
+        return {}
+    except Exception:
+        return {}
+
+
 def fetch_payload(symbol: str, interval: str) -> Dict[str, Any]:
-    """获取精简数据负载（控制在 100KB 以内）"""
-    # 只获取请求的周期和相邻周期
-    interval_map = {"1m": ["1m"], "5m": ["5m", "15m"], "15m": ["15m", "1h"], 
-                    "1h": ["1h", "4h"], "4h": ["4h", "1d"], "1d": ["1d", "1w"], "1w": ["1w"]}
-    intervals = interval_map.get(interval, [interval])
+    """
+    获取完整数据负载（全量版）
     
-    # K线只取最近 20 条
-    candles_raw = fetch_candles(symbol, intervals)
-    candles = {}
-    for iv, data in candles_raw.items():
-        candles[iv] = data[:20]  # 只取最近 20 条
-    
-    # 期货指标只取最近 10 条
-    metrics = fetch_metrics(symbol)[:10]
-    
-    # 指标数据只取关键表
-    indicators_raw = fetch_indicators(symbol)
-    indicators = {}
-    key_tables = ["MACD柱状扫描器.py", "布林带扫描器.py", "KDJ随机指标扫描器.py", 
-                  "ATR波幅扫描器.py", "成交量比率扫描器.py", "主动买卖比扫描器.py"]
-    for tbl in key_tables:
-        if tbl in indicators_raw:
-            data = indicators_raw[tbl]
-            if isinstance(data, list):
-                # 只保留请求周期的数据
-                indicators[tbl] = [r for r in data if r.get("周期") == interval][:5]
-            else:
-                indicators[tbl] = data
-    
+    包含：
+    - K线数据：全部 7 个周期，每个 50 条
+    - 期货指标：50 条
+    - SQLite 指标：全部表的全部数据
+    - 单币快照数据：基础/合约/高级三面板完整字段
+    """
     return {
         "symbol": symbol,
         "interval": interval,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "candles": candles,
-        "metrics": metrics,
-        "indicators": indicators,
+        # K线数据（全量）
+        "candles": fetch_candles(symbol, ALL_INTERVALS, limit=50),
+        # 期货指标（全量）
+        "metrics": fetch_metrics(symbol, limit=50),
+        # SQLite 指标（全量）
+        "indicators": fetch_indicators_full(symbol),
+        # 单币快照数据（复用 telegram-service）
+        "snapshot": fetch_single_token_data(symbol),
     }
 
 
-__all__ = ["fetch_payload", "fetch_candles", "fetch_metrics", "fetch_indicators"]
+__all__ = [
+    "fetch_payload", 
+    "fetch_candles", 
+    "fetch_metrics", 
+    "fetch_indicators_full",
+    "fetch_single_token_data",
+]
