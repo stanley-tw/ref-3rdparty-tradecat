@@ -87,6 +87,10 @@ class SignalEngine:
     
     def _get_table_data(self, table: str, timeframe: str) -> Dict[str, Dict]:
         """获取表中指定周期的所有数据"""
+        # 白名单验证防止SQL注入
+        if table not in RULES_BY_TABLE:
+            logger.warning(f"非法表名: {table}")
+            return {}
         try:
             conn = self._get_conn()
             cursor = conn.cursor()
