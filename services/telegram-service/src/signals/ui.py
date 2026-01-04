@@ -1,10 +1,21 @@
 """
 信号开关管理 - 按表开关
 """
+import os
+import json
+import sqlite3
+import logging
 from typing import Dict, Set
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from .rules import RULES_BY_TABLE
+
+logger = logging.getLogger(__name__)
+
+# 数据库路径
+_SIGNALS_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_SIGNALS_DIR))))
+SUBS_DB_PATH = os.path.join(_PROJECT_ROOT, "libs/database/services/telegram-service/signal_subs.db")
 
 # 表名映射为简短名称
 TABLE_NAMES = {
@@ -48,14 +59,67 @@ TABLE_NAMES = {
 # 所有表
 ALL_TABLES = list(RULES_BY_TABLE.keys())
 
-# 用户订阅 {user_id: {"enabled": bool, "tables": set}}
+# 内存缓存
 _subs: Dict[int, Dict] = {}
+
+
+def _init_db():
+    """初始化订阅数据库"""
+    os.makedirs(os.path.dirname(SUBS_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(SUBS_DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signal_subs (
+            user_id INTEGER PRIMARY KEY,
+            enabled INTEGER DEFAULT 1,
+            tables TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def _load_sub(uid: int) -> Dict:
+    """从数据库加载订阅"""
+    try:
+        conn = sqlite3.connect(SUBS_DB_PATH)
+        row = conn.execute("SELECT enabled, tables FROM signal_subs WHERE user_id = ?", (uid,)).fetchone()
+        conn.close()
+        if row:
+            tables = set(json.loads(row[1])) if row[1] else set(ALL_TABLES)
+            return {"enabled": bool(row[0]), "tables": tables}
+    except Exception as e:
+        logger.warning(f"加载订阅失败 uid={uid}: {e}")
+    return None
+
+
+def _save_sub(uid: int, sub: Dict):
+    """保存订阅到数据库"""
+    try:
+        conn = sqlite3.connect(SUBS_DB_PATH)
+        conn.execute(
+            "INSERT OR REPLACE INTO signal_subs (user_id, enabled, tables) VALUES (?, ?, ?)",
+            (uid, int(sub["enabled"]), json.dumps(list(sub["tables"])))
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"保存订阅失败 uid={uid}: {e}")
+
+
+# 初始化数据库
+_init_db()
 
 
 def get_sub(uid: int) -> Dict:
     if uid not in _subs:
-        # 默认开启推送，开启全部信号
-        _subs[uid] = {"enabled": True, "tables": set(ALL_TABLES)}
+        # 先从数据库加载
+        loaded = _load_sub(uid)
+        if loaded:
+            _subs[uid] = loaded
+        else:
+            # 默认开启推送，开启全部信号
+            _subs[uid] = {"enabled": True, "tables": set(ALL_TABLES)}
+            _save_sub(uid, _subs[uid])
     return _subs[uid]
 
 
@@ -133,16 +197,23 @@ async def handle(update, context) -> bool:
     
     if data == "sig_toggle":
         sub["enabled"] = not sub["enabled"]
+        _save_sub(uid, sub)
     elif data == "sig_all":
         sub["tables"] = set(ALL_TABLES)
+        _save_sub(uid, sub)
     elif data == "sig_none":
         sub["tables"] = set()
+        _save_sub(uid, sub)
     elif data.startswith("sig_t_"):
         table = data[6:]
+        # 白名单验证
+        if table not in ALL_TABLES:
+            return False
         if table in sub["tables"]:
             sub["tables"].discard(table)
         else:
             sub["tables"].add(table)
+        _save_sub(uid, sub)
     elif data == "sig_menu":
         pass
     else:
