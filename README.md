@@ -154,7 +154,7 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 
 ```bash
 cd ~/.projects/tradecat
-./scripts/start.sh daemon    # 启动
+./scripts/start.sh start     # 启动
 ./scripts/start.sh status    # 查看状态
 ```
 
@@ -221,8 +221,8 @@ vim config/.env
 #### 5. 启动服务
 
 ```bash
-# 一键启动 + 守护（推荐，自动重启挂掉的服务）
-./scripts/start.sh daemon
+# 启动所有服务
+./scripts/start.sh start
 
 # 查看状态
 ./scripts/start.sh status
@@ -397,9 +397,11 @@ graph TD
 
 | 服务 | 端口 | 职责 | 技术栈 |
 |:---|:---:|:---|:---|
-| **data-service** | - | WebSocket K线采集、期货指标采集、历史数据回填 | Python, asyncio, ccxt, cryptofeed |
+| **data-service** | - | 加密货币 K线采集、期货指标采集、历史数据回填 | Python, asyncio, ccxt, cryptofeed |
+| **markets-service** | - | 全市场数据采集（美股/A股/宏观/衍生品定价） | yfinance, akshare, fredapi, QuantLib |
 | **trading-service** | - | 38个技术指标计算、高优先级币种筛选、定时调度 | Python, pandas, numpy, TA-Lib |
 | **telegram-service** | - | Bot 交互、排行榜展示、信号推送 | python-telegram-bot, aiohttp |
+| **ai-service** | - | AI 分析、Wyckoff 方法论（作为 telegram-service 子模块） | Gemini/OpenAI/Claude/DeepSeek |
 | **order-service** | - | 交易执行、Avellaneda-Stoikov 做市 | Python, ccxt, cryptofeed |
 | **TimescaleDB** | 5433 | K线存储、期货数据存储、时序查询优化 | PostgreSQL 16 + TimescaleDB |
 
@@ -693,23 +695,6 @@ K线维度:
 | `/query` | 币种查询 | 显示可查询币种 |
 | `/help` | 帮助 | 使用说明 |
 
-### 常驻键盘布局
-
-```
-┌─────────────┬─────────────┬─────────────┐
-│ 📊 数据面板 │ 🔍 币种查询 │  🤖 AI分析  │
-├─────────────┴──────┬──────┴─────────────┤
-│     🏠 主菜单      │      ℹ️ 帮助       │
-└────────────────────┴────────────────────┘
-```
-
-#### 单币查询面板
-
-1. **基础面板** - 布林带、KDJ、MACD、RSI、OBV、量比
-2. **期货面板** - 持仓量、多空比、情绪指标
-3. **高级面板** - 支撑阻力、ATR、流动性、趋势、VWAP
-4. **形态面板** - K线形态识别 (61种)
-
 </details>
 
 ---
@@ -733,13 +718,23 @@ tradecat/
 │   ├── export_timescaledb.sh       # 数据导出
 │   └── timescaledb_compression.sh  # 压缩管理
 │
-├── 📂 services/                    # 微服务目录 (4个)
+├── 📂 services/                    # 微服务目录 (6个)
 │   │
-│   ├── 📂 data-service/            # 数据采集服务
+│   ├── 📂 data-service/            # 加密货币数据采集服务
 │   │   ├── 📂 src/
 │   │   │   ├── 📂 collectors/      # 采集器
 │   │   │   ├── 📂 adapters/        # 适配器
 │   │   │   └── config.py
+│   │   ├── 📂 scripts/
+│   │   ├── requirements.txt
+│   │   └── requirements.lock.txt
+│   │
+│   ├── 📂 markets-service/         # 全市场数据采集服务（美股/A股/宏观）
+│   │   ├── 📂 src/
+│   │   │   ├── 📂 providers/       # 数据源适配器 (8个)
+│   │   │   ├── 📂 collectors/      # 采集任务调度
+│   │   │   ├── 📂 models/          # 标准化数据模型
+│   │   │   └── 📂 core/            # 核心框架
 │   │   ├── 📂 scripts/
 │   │   ├── requirements.txt
 │   │   └── requirements.lock.txt
@@ -763,6 +758,16 @@ tradecat/
 │   │   ├── requirements.txt
 │   │   └── requirements.lock.txt
 │   │
+│   ├── 📂 ai-service/              # AI 分析服务
+│   │   ├── 📂 src/
+│   │   │   ├── 📂 data/            # 数据获取
+│   │   │   ├── 📂 llm/             # LLM 客户端
+│   │   │   ├── 📂 prompt/          # Prompt 管理
+│   │   │   └── 📂 bot/             # Bot 集成
+│   │   ├── 📂 prompts/             # Prompt 模板
+│   │   ├── 📂 scripts/
+│   │   └── requirements.txt
+│   │
 │   └── 📂 order-service/           # 交易执行服务
 │       ├── 📂 src/
 │       │   └── 📂 market-maker/    # A-S 做市系统
@@ -774,6 +779,7 @@ tradecat/
 │   │   └── 📂 services/telegram-service/
 │   │       └── market_data.db      # SQLite 指标数据
 │   └── 📂 common/                  # 共享工具
+│       ├── symbols.py              # 币种管理模块
 │       └── proxy_manager.py        # 代理管理器
 │
 ├── 📂 backups/                     # 备份目录
@@ -798,18 +804,16 @@ tradecat/
 <summary><strong>点击展开👉 统一管理（推荐）</strong></summary>
 
 ```bash
-# 启动 + 守护（自动重启挂掉的服务，30秒检查一次）
-./scripts/start.sh daemon
+# 启动所有服务
+./scripts/start.sh start
 
 # 查看状态
 ./scripts/start.sh status
 
 # 停止全部
-./scripts/start.sh daemon-stop
-
-# 仅启动（不守护）
-./scripts/start.sh start
 ./scripts/start.sh stop
+
+# 重启
 ./scripts/start.sh restart
 ```
 
@@ -1050,6 +1054,18 @@ PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -c "\l"
 ## 📜 许可证
 
 本项目采用 [MIT License](LICENSE) 开源许可证。
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/#tukuaiai/tradecat&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tukuaiai/tradecat&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tukuaiai/tradecat&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tukuaiai/tradecat&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ---
 

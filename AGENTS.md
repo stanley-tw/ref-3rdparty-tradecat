@@ -169,9 +169,11 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 
 | 服务 | 职责 | 禁止 |
 |:---|:---|:---|
-| data-service | 数据采集、存储到 TimescaleDB | 禁止计算指标 |
+| data-service | 加密货币数据采集、存储到 TimescaleDB | 禁止计算指标 |
+| markets-service | 全市场数据采集（美股/A股/宏观） | 禁止计算指标 |
 | trading-service | 指标计算、写入 SQLite | 禁止直接推送消息 |
 | telegram-service | Bot 交互、读取 SQLite | 禁止写入数据库 |
+| ai-service | AI 分析、Wyckoff 方法论 | 作为 telegram-service 子模块 |
 | order-service | 交易执行、做市 | 禁止修改数据采集逻辑 |
 
 ### 4.3 依赖添加规则
@@ -244,12 +246,22 @@ tradecat/
 │   ├── export_timescaledb.sh   # 数据导出
 │   └── timescaledb_compression.sh  # 压缩管理
 │
-├── services/                   # 4个微服务
-│   ├── data-service/           # 数据采集服务
+├── services/                   # 6个微服务
+│   ├── data-service/           # 加密货币数据采集服务
 │   │   ├── src/
 │   │   │   ├── collectors/     # 采集器（backfill/ws/metrics）
 │   │   │   ├── adapters/       # 适配器（timescale/ccxt）
 │   │   │   └── config.py
+│   │   ├── scripts/start.sh
+│   │   ├── requirements.txt
+│   │   └── requirements.lock.txt
+│   │
+│   ├── markets-service/        # 全市场数据采集服务（美股/A股/宏观）
+│   │   ├── src/
+│   │   │   ├── providers/      # 数据源适配器 (8个)
+│   │   │   ├── collectors/     # 采集任务调度
+│   │   │   ├── models/         # 标准化数据模型
+│   │   │   └── core/           # 核心框架
 │   │   ├── scripts/start.sh
 │   │   ├── requirements.txt
 │   │   └── requirements.lock.txt
@@ -273,6 +285,16 @@ tradecat/
 │   │   ├── requirements.txt
 │   │   └── requirements.lock.txt
 │   │
+│   ├── ai-service/             # AI 分析服务
+│   │   ├── src/
+│   │   │   ├── data/           # 数据获取
+│   │   │   ├── llm/            # LLM 客户端
+│   │   │   ├── prompt/         # Prompt 管理
+│   │   │   └── bot/            # Bot 集成
+│   │   ├── prompts/            # Prompt 模板
+│   │   ├── scripts/start.sh
+│   │   └── requirements.txt
+│   │
 │   └── order-service/          # 交易执行服务
 │       ├── src/
 │       │   └── market-maker/   # A-S 做市系统
@@ -284,6 +306,7 @@ tradecat/
 │   │   └── services/telegram-service/
 │   │       └── market_data.db  # SQLite 指标数据
 │   └── common/                 # 共享工具库
+│       ├── symbols.py          # 币种管理模块
 │       └── proxy_manager.py    # 代理管理器
 │
 ├── Makefile                    # 常用命令快捷方式
@@ -296,9 +319,11 @@ tradecat/
 | 文件 | 说明 |
 |:---|:---|
 | `services/data-service/src/__main__.py` | data-service 入口 |
+| `services/markets-service/src/__main__.py` | markets-service 入口 |
 | `services/trading-service/src/simple_scheduler.py` | trading-service 调度器 |
 | `services/telegram-service/src/main.py` | telegram-service 入口 |
 | `services/telegram-service/src/bot/app.py` | Bot 主逻辑 |
+| `services/ai-service/src/bot/handler.py` | AI 分析处理器 |
 
 ### 6.2 核心模块
 
@@ -483,6 +508,8 @@ docs: 更新 README 快速开始指南
 | `BLOCKED_SYMBOLS` | telegram-service | 屏蔽币种黑名单 |
 | `DISABLE_SINGLE_TOKEN_QUERY` | telegram-service | 禁用单币查询 (0=启用) |
 | `SNAPSHOT_HIDDEN_FIELDS` | telegram-service | 单币快照屏蔽字段 |
+| `AI_INDICATOR_TABLES` | ai-service | 启用的指标表（逗号分隔） |
+| `AI_INDICATOR_TABLES_DISABLED` | ai-service | 禁用的指标表 |
 
 ---
 
@@ -495,16 +522,17 @@ docs: 更新 README 快速开始指南
 ./scripts/init.sh               # 初始化所有服务
 ./scripts/init.sh data-service  # 初始化单个服务
 
-# 启动服务（推荐守护模式）
-./scripts/start.sh daemon       # 启动 + 守护（自动重启）
-./scripts/start.sh daemon-stop  # 停止守护 + 全部服务
+# 启动服务
+./scripts/start.sh start        # 启动所有服务
+./scripts/start.sh stop         # 停止所有服务
 ./scripts/start.sh status       # 查看状态
+./scripts/start.sh restart      # 重启
 
 # Make 快捷命令
 make init                       # 初始化
 make start                      # 启动
 make stop                       # 停止
-make daemon                     # 守护模式
+make status                     # 查看状态
 
 # 单服务管理
 cd services/trading-service
