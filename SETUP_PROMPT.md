@@ -1,129 +1,116 @@
-# 🐱 TradeCat 快速安装指南
+# 🐱 TradeCat 一键安装
 
-> 复制下面的提示词到 AI 助手，让 AI 一步步带你完成安装
+> 复制提示词到 AI 助手，AI 会生成完整安装脚本，你只需执行一次
 
 ---
 
 ## 📋 安装提示词
 
-复制以下内容到 ChatGPT / Claude：
+复制以下内容到 **Claude / ChatGPT**：
 
 ```
-你是 TradeCat 安装助手。请一步一步指导我安装，每次只给 1-2 个命令，等我确认后再继续。
+生成一个 TradeCat 全自动安装脚本，要求：
 
-## 安装目标
-- 系统: Ubuntu 24.04 (WSL2)
-- 数据库: TimescaleDB (PostgreSQL 16, 端口 5433)
-- 项目: github.com/tukuaiai/tradecat
+1. 系统: Ubuntu 22.04/24.04
+2. 安装: TimescaleDB 2.x + TA-Lib + Python 3.10+
+3. 项目: github.com/tukuaiai/tradecat
+4. 数据库: postgres/postgres@localhost:5432/market_data
 
-## 配置信息
-- 数据库用户: postgres / postgres
-- 数据库名: market_data
-- 项目路径: ~/.projects/tradecat
+脚本要求：
+- 一个 bash 脚本，复制执行即可
+- 自动检测已安装的组件，跳过
+- 每步有清晰的进度提示
+- 最后输出验证结果
+- 出错时显示具体原因
 
-## 安装步骤
-1. WSL2 + Ubuntu 24.04
-2. 系统依赖 (build-essential, python3-dev 等)
-3. TimescaleDB 2.x
-4. TA-Lib 系统库
-5. 克隆项目 + ./scripts/init.sh
-6. 配置 .env (Bot Token)
-7. 启动服务
+脚本结构：
+1. 检查系统
+2. 安装系统依赖
+3. 安装 TimescaleDB
+4. 创建数据库
+5. 安装 TA-Lib
+6. 克隆项目到 ~/.projects/tradecat
+7. 运行 ./scripts/init.sh
+8. 验证安装
 
-## 规则
-- 用中文回复
-- 命令用代码块
-- 遇到错误帮我分析
-- 重要提醒用 ⚠️
-
-现在开始，先问我：
-1. 用的是 Windows 还是已有 Linux？
-2. 是否已安装 WSL2？
+直接输出完整脚本，不要解释。
 ```
 
 ---
 
-## 🚀 手动安装 (5分钟)
+## 🚀 执行安装
 
-如果你熟悉 Linux，直接执行：
-
-### 1️⃣ 安装依赖
+AI 生成脚本后，在 Ubuntu 终端执行：
 
 ```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install -y build-essential python3-dev python3-pip python3-venv git curl wget
+# 1. 保存脚本
+cat > install_tradecat.sh << 'SCRIPT'
+# 粘贴 AI 生成的脚本内容
+SCRIPT
 
-# TimescaleDB
-echo "deb https://packagecloud.io/timescale/timescaledb/ubuntu/ $(lsb_release -c -s) main" | sudo tee /etc/apt/sources.list.d/timescaledb.list
-wget --quiet -O - https://packagecloud.io/timescale/timescaledb/gpgkey | sudo apt-key add -
-sudo apt update && sudo apt install -y timescaledb-2-postgresql-16
-sudo timescaledb-tune --quiet --yes
-sudo systemctl restart postgresql
-
-# TA-Lib
-cd /tmp && wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-tar -xzf ta-lib-0.4.0-src.tar.gz && cd ta-lib
-./configure --prefix=/usr && make -j$(nproc) && sudo make install && sudo ldconfig
+# 2. 执行
+chmod +x install_tradecat.sh
+./install_tradecat.sh
 ```
 
-### 2️⃣ 创建数据库
+---
+
+## ✅ 验证安装
+
+安装完成后检查：
 
 ```bash
-sudo -u postgres psql -c "CREATE DATABASE market_data;"
-sudo -u postgres psql -d market_data -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+cd ~/.projects/tradecat
+./scripts/verify.sh
 ```
 
-### 3️⃣ 部署项目
-
-```bash
-mkdir -p ~/.projects && cd ~/.projects
-git clone https://github.com/tukuaiai/tradecat.git && cd tradecat
-./scripts/init.sh
+应显示：
+```
+✅ TimescaleDB 连接正常
+✅ TA-Lib 安装正常
+✅ 项目初始化完成
+✅ 所有服务就绪
 ```
 
-### 4️⃣ 配置 Bot Token
+---
+
+## ⚙️ 配置 Bot (必须)
 
 ```bash
-# 编辑配置
-vim services/telegram-service/config/.env
+# 编辑配置，填入你的 Telegram Bot Token
+vim ~/.projects/tradecat/services/telegram-service/config/.env
+```
 
-# 填入你的 Bot Token
+```ini
 TELEGRAM_BOT_TOKEN=你的Token
+# 如需代理
+HTTPS_PROXY=http://127.0.0.1:7890
 ```
 
-### 5️⃣ 启动
+---
+
+## 🎬 启动服务
 
 ```bash
-./scripts/start.sh daemon
-./scripts/start.sh status
+cd ~/.projects/tradecat
+./scripts/start.sh daemon    # 启动
+./scripts/start.sh status    # 查看状态
 ```
 
 ---
 
 ## 📥 导入历史数据 (可选)
 
-从 [HuggingFace](https://huggingface.co/datasets/123olp/binance-futures-ohlcv-2018-2026) 下载数据后：
+从 [HuggingFace](https://huggingface.co/datasets/123olp/binance-futures-ohlcv-2018-2026) 下载后：
 
 ```bash
-cd backups/timescaledb
+cd ~/.projects/tradecat/backups/timescaledb
 zstd -d candles_1m.bin.zst -c | psql -d market_data -c "COPY market_data.candles_1m FROM STDIN WITH (FORMAT binary)"
 ```
 
 ---
 
-## ❓ 常见问题
-
-| 问题 | 解决 |
-|:---|:---|
-| TimescaleDB 连接失败 | `sudo systemctl status postgresql` 检查状态 |
-| TA-Lib 编译失败 | 先 `sudo apt install build-essential` |
-| Bot 无法连接 | 配置代理 `HTTPS_PROXY=http://127.0.0.1:7890` |
-| pip 安装慢 | 换源 `pip install -i https://pypi.tuna.tsinghua.edu.cn/simple` |
-
----
-
-## 📞 获取帮助
+## ❓ 问题反馈
 
 - Telegram 群: [@glue_coding](https://t.me/glue_coding)
 - 频道: [@tradecat_ai_channel](https://t.me/tradecat_ai_channel)
