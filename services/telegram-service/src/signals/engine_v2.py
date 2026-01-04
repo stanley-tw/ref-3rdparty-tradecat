@@ -125,7 +125,7 @@ class SignalEngine:
                     result[symbol] = row_dict
             return result
         except Exception as e:
-            logger.debug(f"读取表 {table} 失败: {e}")
+            logger.warning(f"读取表 {table} 失败: {e}")
             return {}
     
     def _get_symbol_all_tables(self, symbol: str, timeframe: str) -> Dict[str, Dict]:
@@ -254,7 +254,7 @@ class SignalEngine:
                                     logger.info(f"信号触发: {symbol} {rule.direction} - {rule.name} ({timeframe})")
                         except Exception as e:
                             self.stats["errors"] += 1
-                            logger.debug(f"规则检查异常 {rule.name}: {e}")
+                            logger.warning(f"规则检查异常 {rule.name}: {e}")
                     
                     # 更新缓存
                     self.baseline[cache_key] = curr_row
