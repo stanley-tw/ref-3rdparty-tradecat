@@ -221,7 +221,7 @@
 | `futures_metrics_5m.bin.zst` | 期货指标 (2021-至今, 9457万条) | ~800 MB |
 
 <details>
-<summary><strong>📋 点击展开👉 数据详情与导入步骤</strong></summary>
+<summary><strong>点击展开👉 📋 数据详情与导入步骤</strong></summary>
 
 ### 数据概览
 
@@ -305,7 +305,7 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 ## 📈 技术指标
 
 <details>
-<summary><strong>🔥 点击展开👉 趋势指标 (8个)</strong></summary>
+<summary><strong>点击展开👉 🔥 趋势指标 (8个)</strong></summary>
 
 | 指标 | 说明 | 参数 |
 |:---|:---|:---|
@@ -321,7 +321,7 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 </details>
 
 <details>
-<summary><strong>📊 点击展开👉 动量指标 (6个)</strong></summary>
+<summary><strong>点击展开👉 📊 动量指标 (6个)</strong></summary>
 
 | 指标 | 说明 | 参数 |
 |:---|:---|:---|
@@ -335,7 +335,7 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 </details>
 
 <details>
-<summary><strong>📉 点击展开👉 波动指标 (4个)</strong></summary>
+<summary><strong>点击展开👉 📉 波动指标 (4个)</strong></summary>
 
 | 指标 | 说明 | 参数 |
 |:---|:---|:---|
@@ -347,7 +347,7 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 </details>
 
 <details>
-<summary><strong>📦 点击展开👉 成交量指标 (6个)</strong></summary>
+<summary><strong>点击展开👉 📦 成交量指标 (6个)</strong></summary>
 
 | 指标 | 说明 | 用途 |
 |:---|:---|:---|
@@ -361,7 +361,7 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 </details>
 
 <details>
-<summary><strong>🕯️ 点击展开👉 K线形态 (61+种)</strong></summary>
+<summary><strong>点击展开👉 🕯️ K线形态 (61+种)</strong></summary>
 
 **蜡烛形态 (TA-Lib, 61种)**
 
@@ -384,7 +384,7 @@ zstd -d futures_metrics_5m.bin.zst -c | psql -h localhost -p 5433 -U postgres -d
 </details>
 
 <details>
-<summary><strong>📡 点击展开👉 期货指标 (8个)</strong></summary>
+<summary><strong>点击展开👉 📡 期货指标 (8个)</strong></summary>
 
 | 指标 | 说明 | 信号含义 |
 |:---|:---|:---|
@@ -491,7 +491,7 @@ K线维度:
 > 把下面的提示词复制到 **Claude / ChatGPT / Cursor / Kiro**，AI 会自动执行安装，零人工介入
 
 <details>
-<summary><strong>📋 点击展开👉 安装提示词</strong></summary>
+<summary><strong>点击展开👉 📋 安装提示词</strong></summary>
 
 ```
 按照 https://github.com/tukuaiai/tradecat/blob/main/README.md 的说明帮我安装 TradeCat
@@ -555,7 +555,7 @@ cd ~/.projects/tradecat
 ---
 
 <details>
-<summary><strong>📖 点击展开👉 手动安装步骤</strong></summary>
+<summary><strong>点击展开👉 📖 手动安装步骤</strong></summary>
 
 ### 环境要求
 
